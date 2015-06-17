@@ -36,9 +36,16 @@ function menu_block_placement_field_schema($field) {
   return $schema;
 }
 
-/*
+/**
  * Implements hook_install().
  */
 function menu_block_placement_install() {
-  _menu_block_placement_regions();
+  _mbp_regions_set();
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function menu_block_placement_uninstall() {
+  variable_del('mbp_regions');
 }

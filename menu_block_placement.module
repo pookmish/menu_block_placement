@@ -25,7 +25,7 @@ function menu_block_placement_field_info() {
   );
 }
 
-/*
+/**
  * Implements hook_field_widget_info().
  */
 function menu_block_placement_field_widget_info() {
@@ -35,6 +35,16 @@ function menu_block_placement_field_widget_info() {
       'field types' => array('menu_block_placement_reference'),
     )
   );
+}
+
+/**
+ * Implements hook_field_create_field().
+ */
+function menu_block_placement_field_create_field($field) {
+  if ($field['type'] == 'menu_block_placement_reference') {
+    $field['cardinality'] = '-1';
+    field_update_field($field);
+  }
 }
 
 /**
@@ -76,12 +86,12 @@ function menu_block_placement_field_settings_form($field, $instance) {
 }
 
 
-/*
+/**
  * Implements hook_field_widget_form().
  */
 function menu_block_placement_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
   //sets regions and menu variables
-  $regions = variable_get('menu_block_placement_regions');
+  $regions = variable_get('mbp_regions');
   $options = _menu_block_placement_menu_items($field);
 
   //menu mlid select list
@@ -136,7 +146,7 @@ function menu_block_placement_field_presave($entity_type, $entity, $field, $inst
 }
 
 /**
- *  Implements hook_field_formatter_info().
+ * Implements hook_field_formatter_info().
  */
 function menu_block_placement_field_formatter_info() {
   return array(
@@ -160,11 +170,11 @@ function menu_block_placement_field_formatter_info() {
 }
 
 /**
- *  Implements hook_field_formatter_view().
+ * Implements hook_field_formatter_view().
  */
 function menu_block_placement_field_formatter_view($entity_type, $entity, &$field, $instance, $langcode, $items, $display) {
   $menu_array = _menu_block_placement_menu_items($field);
-  $regions = variable_get('menu_block_placement_regions');
+  $regions = variable_get('mbp_regions');
   $output = array();
   $element = array();
 
@@ -178,7 +188,7 @@ function menu_block_placement_field_formatter_view($entity_type, $entity, &$fiel
           }
         }
       }
-      isset($items[0]['region']) ? $output['region'] = $regions[$items[0]['region']] : '';
+      isset($items[0]['region']) ? $output['region'] = (isset($regions[$items[0]['region']]) ? $regions[$items[0]['region']] : '') : '';
       isset($items[0]['individual_pages']) ? $output['individual_pages'] = ($items[0]['individual_pages'] ? 'True' : 'False') : '';
 
       //develops the html output of the data in a simple form
@@ -212,76 +222,155 @@ function menu_block_placement_field_formatter_view($entity_type, $entity, &$fiel
       }
       break;
     case 'menu_block_placement_region':
-      $element = array(
-        array(
-          '#markup' => !empty($items[0]['region']) ? $regions[$items[0]['region']] : '',
-        ),
-      );
+      if (!empty($items[0]['region'])) {
+        $element[] = array('#markup' => $regions[$items[0]['region']]);
+      }
+
       break;
     case 'menu_block_placement_ind_pages':
-      $element = array(
-        array(
-          '#markup' => !empty($items[0]['individual_pages']) ? ($items[0]['individual_pages'] ? 'True' : 'False') : '',
-        ),
-      );
+      if (isset($items[0]['individual_pages'])) {
+        $element[] = $items[0]['individual_pages'] ? 'True' : 'False';
+      }
       break;
   }
 
   return $element;
+
 }
 
 /**
- *  Implements hook_form_alter().
+ * Removes options from the "Number of values' that aren't compatible with this field
+ *
+ * Implements hook_form_FORM_ID_alter().
+ */
+function menu_block_placement_form_field_ui_field_edit_form_alter(&$form, &$form_state, $form_id) {
+  if ($form['#field']['type'] == 'menu_block_placement_reference') {
+    $form['field']['cardinality']['#options'] = array(
+      -1 => 'Unlimited',
+      1 => 1
+    );
+  }
+}
+
+/**
+ * If the form contains a MBP field, adds that field name to the form state to be used in the form alter
+ *
+ * Implements hook_field_widget_form_alter().
+ */
+function menu_block_placement_field_widget_form_alter(&$element, &$form_state, $context) {
+  if (isset($element['mlid'])) {
+    $mbp_fields = isset($form_state['mbp_fields']) ? $form_state['mbp_fields'] : array();
+    !in_array($element['#field_name'], $mbp_fields) ? $mbp_fields[] = $element['#field_name'] : '';
+    $form_state['mbp_fields'] = $mbp_fields;
+    unset($element['_weight']);
+  }
+}
+
+/**
+ * Since the field must be set to unlimited items, we have to alter the form to hide duplicated
+ * field widgets. This will also pull in the correct data for the field.
+ *
+ * Implements hook_form_alter().
  */
 function menu_block_placement_form_alter(&$form, &$form_state, $form_id) {
-  $field_names = array();
-
-  //checks and sets the field name to be used to alter the form for that particular field
-  if (isset($form_state['node'])) {
-    foreach ($form_state['field'] as $field) {
-      if (isset($field[$form['language']['#value']]) && $field[$form['language']['#value']]['field']['type'] == 'menu_block_placement_reference') {
-        //sets the field names into an array for multiple fields in the same form
-        $field_names[] = $field[$form['language']['#value']]['field']['field_name'];
+  if (isset($form['#entity_type']) && $form['#entity_type'] != 'node') {
+    unset($form['fields']['_add_new_field']['type']['#options']['menu_block_placement_reference']);
+    foreach (field_info_fields() as $field) {
+      if ($field['type'] == 'menu_block_placement_reference') {
+        unset($form['fields']['_add_existing_field']['field_name']['#options'][$field['field_name']]);
       }
     }
   }
 
-  //loops through all the valid fields in he form
-  foreach ($field_names as $field_name) {
-    //changes the form to only display one field, not multiple fields
-    $form[$field_name][$form['language']['#value']]['#cardinality'] = '1';
-    //duplicates the basic field settings to be re-injected later
-    $temp_field = $form[$field_name][$form['language']['#value']][0];
-    //unsets values to hide the add more and weight attributes
-    unset($form[$field_name][$form['language']['#value']]['add_more']);
-    unset($temp_field['_weight']);
+  if (isset($form_state['mbp_fields'])) {
+    foreach ($form_state['mbp_fields'] as $field) {
+      //$lang = $form[$field]['#language'];
+      //mimick a single field instead of unlimited fields
+      $form[$field][LANGUAGE_NONE]['#cardinality'] = 1;
 
-    //queries the db to find all the mlid's for the current node
-    $items = db_select('field_data_' . $field_name, 'f')
-      ->fields('f', array($field_name . '_mlid'))
-      ->condition('entity_id', $form['nid'])
-      ->condition('revision_id', $form['vid'])
-      ->execute();
+      //unsets all repeated field settings
+      foreach ($form[$field][LANGUAGE_NONE] as $key => $value) {
+        if (isset($value['mlid']) && $key != 0) {
+          unset($form[$field][LANGUAGE_NONE][$key]);
+        }
+      }
 
-    //creates an array from the mlid's for the current node
-    $default_mlid = array();
-    $db_field_name = $field_name . '_mlid';
-    foreach ($items as $item) {
-      $default_mlid[] = $item->$db_field_name;
+      //unsets add more
+      unset($form[$field][LANGUAGE_NONE]['add_more']);
+
+      //queries the db to find all the mlid's for the current node
+      $items = array();
+      //dpm($form);
+      if(isset($form['nid'])) {
+        $items = db_select('field_data_' . $field, 'f')
+          ->fields('f', array($field . '_mlid'))
+          ->condition('entity_id', $form['nid']['#value'])
+          ->condition('revision_id', $form['vid'])
+          ->execute();
+      }
+
+
+      //creates an array from the mlid's for the current node
+      $form[$field][LANGUAGE_NONE][0]['mlid']['#default_value'] = array();
+      foreach ($items as $item) {
+        $item = (array) $item;
+        $form[$field][LANGUAGE_NONE][0]['mlid']['#default_value'][] = $item[$field . '_mlid'];
+      }
     }
+  }
+}
 
-    //sets the default mlid values
-    $temp_field['mlid']['#default_value'] = $default_mlid;
 
-    //unsets the original data that was pulled in
-    foreach ($form[$field_name][$form['language']['#value']] as $key => $value) {
-      if (isset($value['mlid'])) {
-        unset($form[$field_name][$form['language']['#value']][$key]);
+/**
+ * Implements hook_node_insert().
+ */
+function menu_block_placement_node_insert($node) {
+  _menu_block_placement_reindex($node);
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function menu_block_placement_node_update($node) {
+  _menu_block_placement_reindex($node);
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function menu_block_placement_node_delete($node) {
+  _menu_block_placement_reindex($node);
+}
+
+/**
+ * @param $node
+ *
+ * Function to flag nodes for reindex when a node changes.
+ */
+function _menu_block_placement_reindex($node) {
+  if (db_table_exists('search_dataset')) {
+    $nids = array();
+    foreach ($fields = field_info_field_map() as $key => $field) {
+      if ($field['type'] == 'menu_block_placement_reference' && isset($node->$key)) {
+        $field_data = $node->$key;
+        foreach ($field_data[LANGUAGE_NONE] as $delta => $value) {
+          $mlid = $value['mlid'];
+          $menu_item = menu_link_load($mlid);
+          if (strpos($menu_item['link_path'], 'node') !== FALSE) {
+            $path = explode('/', $menu_item['link_path']);
+            $nids[] = end($path);
+          }
+        }
       }
     }
 
-    //sets the data from the manipulated data.
-    $form[$field_name][$form['language']['#value']][0] = $temp_field;
+    foreach ($nids as $nid) {
+      cache_clear_all('field:node:' . $nid, 'cache_field');
+      db_update('search_dataset')
+        ->condition('sid', $nid)
+        ->fields(array('reindex' => time()))
+        ->execute();
+    }
   }
 }
 
@@ -310,18 +399,20 @@ function menu_block_placement_views_api() {
   );
 }
 
-/*
+/**
  * resets region variables on a cache clear.
  *
  * Implements hook_flush_caches().
  */
 function menu_block_placement_flush_caches() {
-  _menu_block_placement_regions();
+  _mbp_regions_set();
 }
 
 
-//helper function to set the variable for available regions in the select list
-function _menu_block_placement_regions() {
+/**
+ * helper function to set the variable for available regions in the select list.
+ */
+function _mbp_regions_set() {
   //creates the array for the regions select list
   $available_regions = array();
   $path_to_info = drupal_get_path('theme', variable_get('theme_default', NULL)) . '/' . variable_get('theme_default', NULL) . '.info';
@@ -341,10 +432,15 @@ function _menu_block_placement_regions() {
   }
 
   //sets the variable for use in the field.
-  variable_set('menu_block_placement_regions', $available_regions);
+  variable_set('mbp_regions', $available_regions);
 }
 
-function _menu_block_placement_menu_items($field) {
+/**
+ * @param $field
+ * @return array
+ * Returns the available menus for the specific field.
+ */
+function _menu_block_placement_menu_items($field = array(), $menus = NULL) {
   $options = array();
   if (isset($field["settings"]["default_menus"])) {
     $default_menus = $field["settings"]["default_menus"];
@@ -361,10 +457,29 @@ function _menu_block_placement_menu_items($field) {
       $menu_machine_name = ucwords(str_replace("-", " ", array_shift($exploded_key)));
       $menu_id = array_pop($exploded_key);
       if ($menu_id != 0) {
+        $value = substr($value, 0, 2) == '--' ? substr($value, 2) : $value;
         $options[$menu_machine_name][$menu_id] = str_replace(array(
           "<",
           ">"
         ), "", $value);
+      }
+    }
+  }
+  else {
+    if (!is_null($menus)) {
+      $options = array();
+      $menu_items = menu_parent_options($menus, array("mlid" => 0));
+      foreach ($menu_items as $key => $value) {
+        $exploded_key = explode(":", $key);
+        $menu_machine_name = ucwords(str_replace("-", " ", array_shift($exploded_key)));
+        $menu_id = array_pop($exploded_key);
+        if ($menu_id != 0) {
+          $value = substr($value, 0, 2) == '--' ? substr($value, 2) : $value;
+          $options[$menu_machine_name][$menu_id] = str_replace(array(
+            "<",
+            ">"
+          ), "", $value);
+        }
       }
     }
   }
