@@ -34,59 +34,20 @@ function mbp_defaults_menu() {
 }
 
 /**
- * Module configuration page function.
+ * Implements hook_form_FORM_ID_alter().
  */
-function mbp_defaults_config() {
-  $form = array();
-  if (!module_exists('contextual') && variable_get('mbp_defaults_contextual', 1) == 1) {
-    drupal_set_message(t('You must have Contextual Module enabled to display the links as contextual links.'), 'error');
-  }
-  $form['mbp_defaults_supress'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Supress views query alter errors on view edit page'),
-    '#description' => t('Useful if customizing the views and using custom query alters'),
-    '#default_value' => variable_get('mbp_defaults_supress', 0),
-  );
-
-  $form['mbp_defaults_contextual'] = array(
-    '#type' => 'radios',
-    '#title' => t('How to show the "Display" & "Sort/Edit" links'),
-    '#options' => array(
-      0 => t('As Tabs'),
-      1 => t('As Contextual Links'),
-    ),
-    '#default_value' => variable_get('mbp_defaults_contextual', 1),
-  );
-  if (module_exists('quicktabs_tabstyles')) {
-
-    $options = array();
-    $styles = module_invoke_all('quicktabs_tabstyles');
-    foreach ($styles as $style) {
-      $options[$style] = $style;
+function mbp_defaults_form_block_admin_display_form_alter(&$form, &$form_state, $form_id) {
+  foreach($form['blocks'] as $delta => $block){
+    if($block['module']['#value'] == 'mbp_defaults'){
+      unset($form['blocks'][$delta]);
     }
-    ksort($options);
-
-    $form['mbp_defaults_style'] = array(
-      '#type' => 'radios',
-      '#title' => t('Tab Style (if displaysing as tabs).'),
-      '#options' => array('nostyle' => t('No style')) + $options,
-      '#default_value' => variable_get('mbp_defaults_style', 'Zen'),
-      '#states' => array(
-        'visible' => array(
-          ':input[name="mbp_defaults_contextual"]' => array('value' => 0),
-        )
-      ),
-    );
   }
-
-  return system_settings_form($form);
 }
 
-
 /**
- * Adds the new field name to the array variable or sets the variable with the field name
- *
  * Implements hook_field_create_field().
+ *
+ * Adds the new field name to the array variable or sets the variable with the field name
  */
 function mbp_defaults_field_create_field($field) {
   if ($field['type'] == 'menu_block_placement_reference') {
@@ -103,9 +64,9 @@ function mbp_defaults_field_create_field($field) {
 }
 
 /**
- * Removes the field name from the array variable
- *
  * Implements hook_field_delete_field().
+ *
+ * Removes the field name from the array variable
  */
 function mbp_defaults_field_delete_field($field) {
   if ($field['type'] == 'menu_block_placement_reference') {
@@ -134,11 +95,11 @@ function mbp_defaults_ctools_plugin_api($owner, $api) {
 }
 
 /**
+ * Implements hook_views_query_alter().
+ *
  * If a the view maintains its default state, the query will be altered
  * to move the contextual filters into the normal filters.
  * This helps when the 'Show only on selected pages' checkbox is present.
- *
- * Implements hook_views_query_alter().
  */
 function mbp_defaults_views_query_alter(&$view, &$query) {
   $tags = explode(', ', $view->tag);
@@ -181,45 +142,46 @@ function mbp_defaults_views_ui_display_top_links_alter(&$links, $view, $display_
 }
 
 /**
+ * Implements hook_block_info().
+ *
  * Structures the blocks info. If a MBP field contains the region select box,
  * a block will be created for each region in the select list.
  * If the region select box does not exist, a single block will be created.
- *
- * Implements hook_block_info().
  */
 function mbp_defaults_block_info() {
-  $regions = variable_get('mbp_regions', array());
+  $regions = _mbp_regions();
   $fields = variable_get('mbp_defaults', array());
 
   $blocks = array();
-  foreach ($fields as $fid => $field) {
-    //checks if the field contains the region select list
-    $field_settings = field_info_field($field);
-    if ($field_settings['settings']['default_selects']['region']) {
-      //creates a block for reach region
-      foreach ($regions as $key => $label) {
-        $blocks['mbp-' . $fid . '-' . $key] = array(
-          'info' => t('MBP-' . substr($field, 6) . '-' . $label),
+  if($regions) {
+    foreach ($fields as $fid => $field) {
+      //checks if the field contains the region select list
+      $field_settings = field_info_field($field);
+      if ($field_settings['settings']['default_selects']['region']) {
+        //creates a block for reach region
+        foreach ($regions as $key => $label) {
+          $blocks['mbp-' . $fid . '-' . $key] = array(
+            'info' => t('MBP-' . substr($field, 6) . '-' . $label),
+            'cache' => DRUPAL_NO_CACHE,
+          );
+        }
+      }
+      else {
+        //creates a single block to be placed on any region
+        $blocks['mbp-' . $fid] = array(
+          'info' => t('MBP-' . substr($field, 6)),
           'cache' => DRUPAL_NO_CACHE,
         );
       }
     }
-    else {
-      //creates a single block to be placed on any region
-      $blocks['mbp-' . $fid] = array(
-        'info' => t('MBP-' . substr($field, 6)),
-        'cache' => DRUPAL_NO_CACHE,
-      );
-    }
-
   }
   return $blocks;
 }
 
 /**
- * Constructs the renderable array from the quicktabs module
- *
  * Implements hook_block_view().
+ *
+ * Constructs the renderable array from the quicktabs module
  */
 function mbp_defaults_block_view($delta = '') {
   $fields = variable_get('mbp_defaults');
@@ -279,7 +241,7 @@ function mbp_defaults_contextual_links_view_alter(&$element, $items) {
  * Implements hook_flush_caches().
  */
 function mbp_defaults_flush_caches() {
-  $regions = variable_get('mbp_regions');
+  $regions = _mbp_regions();
   $query = db_select('block', 'b')
     ->fields('b', array('bid', 'delta'))
     ->condition('module', 'mbp_defaults')
@@ -345,6 +307,56 @@ function mbp_defaults_default_rules_configuration() {
     return $configs;
   }
 }
+
+/**
+ * Module configuration page function.
+ */
+function mbp_defaults_config() {
+  $form = array();
+  if (!module_exists('contextual') && variable_get('mbp_defaults_contextual', 1) == 1) {
+    drupal_set_message(t('You must have Contextual Module enabled to display the links as contextual links.'), 'error');
+  }
+  $form['mbp_defaults_supress'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Supress views query alter errors on view edit page'),
+    '#description' => t('Useful if customizing the views and using custom query alters'),
+    '#default_value' => variable_get('mbp_defaults_supress', 0),
+  );
+
+  $form['mbp_defaults_contextual'] = array(
+    '#type' => 'radios',
+    '#title' => t('How to show the "Display" & "Sort/Edit" links'),
+    '#options' => array(
+      0 => t('As Tabs'),
+      1 => t('As Contextual Links'),
+    ),
+    '#default_value' => variable_get('mbp_defaults_contextual', 1),
+  );
+  if (module_exists('quicktabs_tabstyles')) {
+
+    $options = array();
+    $styles = module_invoke_all('quicktabs_tabstyles');
+    foreach ($styles as $style) {
+      $options[$style] = $style;
+    }
+    ksort($options);
+
+    $form['mbp_defaults_style'] = array(
+      '#type' => 'radios',
+      '#title' => t('Tab Style (if displaysing as tabs).'),
+      '#options' => array('nostyle' => t('No style')) + $options,
+      '#default_value' => variable_get('mbp_defaults_style', 'Zen'),
+      '#states' => array(
+        'visible' => array(
+          ':input[name="mbp_defaults_contextual"]' => array('value' => 0),
+        )
+      ),
+    );
+  }
+
+  return system_settings_form($form);
+}
+
 
 /**
  * @param $field_id

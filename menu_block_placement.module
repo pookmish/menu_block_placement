@@ -90,8 +90,7 @@ function menu_block_placement_field_settings_form($field, $instance) {
  * Implements hook_field_widget_form().
  */
 function menu_block_placement_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
-  //sets regions and menu variables
-  $regions = variable_get('mbp_regions');
+  $regions = _mbp_regions();
   $options = _menu_block_placement_menu_items($field);
 
   //menu mlid select list
@@ -174,7 +173,7 @@ function menu_block_placement_field_formatter_info() {
  */
 function menu_block_placement_field_formatter_view($entity_type, $entity, &$field, $instance, $langcode, $items, $display) {
   $menu_array = _menu_block_placement_menu_items($field);
-  $regions = variable_get('mbp_regions');
+  $regions = _mbp_regions();
   $output = array();
   $element = array();
 
@@ -301,7 +300,7 @@ function menu_block_placement_form_alter(&$form, &$form_state, $form_id) {
       //queries the db to find all the mlid's for the current node
       $items = array();
       //dpm($form);
-      if(isset($form['nid'])) {
+      if (isset($form['nid'])) {
         $items = db_select('field_data_' . $field, 'f')
           ->fields('f', array($field . '_mlid'))
           ->condition('entity_id', $form['nid']['#value'])
@@ -400,42 +399,6 @@ function menu_block_placement_views_api() {
 }
 
 /**
- * resets region variables on a cache clear.
- *
- * Implements hook_flush_caches().
- */
-function menu_block_placement_flush_caches() {
-  _mbp_regions_set();
-}
-
-
-/**
- * helper function to set the variable for available regions in the select list.
- */
-function _mbp_regions_set() {
-  //creates the array for the regions select list
-  $available_regions = array();
-  $path_to_info = drupal_get_path('theme', variable_get('theme_default', NULL)) . '/' . variable_get('theme_default', NULL) . '.info';
-  $theme_settings = drupal_parse_info_file($path_to_info);
-  if (isset($theme_settings['settings']['menu_block_placement'])) {
-    foreach ($theme_settings['settings']['menu_block_placement'] as $key => $value) {
-      if ($value && isset($theme_settings['regions'][$key])) {
-        $available_regions[$key] = $theme_settings['regions'][$key];
-      }
-    }
-  }
-  //if no block placement regions are labeled in the info file, all regions will be displayed in the dropdown
-  else {
-    if (isset($theme_settings['regions'])) {
-      $available_regions = $theme_settings['regions'];
-    }
-  }
-
-  //sets the variable for use in the field.
-  variable_set('mbp_regions', $available_regions);
-}
-
-/**
  * @param $field
  * @return array
  * Returns the available menus for the specific field.
@@ -484,4 +447,32 @@ function _menu_block_placement_menu_items($field = array(), $menus = NULL) {
     }
   }
   return $options;
+}
+
+/**
+ * Helper function to set the cache for available regions in the select list.
+ */
+function _mbp_regions() {
+  if (!$cache = cache_get('mbp_regions')) {
+    $available_regions = array();
+    $theme_settings = system_get_info('theme', variable_get('theme_default', NULL));
+    if (isset($theme_settings['settings']['menu_block_placement'])) {
+      foreach ($theme_settings['settings']['menu_block_placement'] as $key => $value) {
+        if ($value && isset($theme_settings['regions'][$key])) {
+          $available_regions[$key] = $theme_settings['regions'][$key];
+        }
+      }
+    }
+    //if no block placement regions are labeled in the info file, all regions will be displayed in the dropdown
+    else {
+      if (isset($theme_settings['regions'])) {
+        $available_regions = $theme_settings['regions'];
+      }
+    }
+
+    //sets the cache for use in the field.
+    cache_set('mbp_regions', $available_regions);
+    $cache = cache_get('mbp_regions');
+  }
+  return $cache->data;
 }

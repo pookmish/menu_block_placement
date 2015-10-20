@@ -10,7 +10,7 @@
 function mbp_defaults_context_default_contexts() {
   $export = array();
   $fields = variable_get('mbp_defaults');
-  $regions = variable_get('mbp_regions');
+  $regions = _mbp_regions();
 
   $blocks = array();
   foreach ($fields as $fkey => $field) {
